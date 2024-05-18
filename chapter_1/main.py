@@ -167,15 +167,24 @@ if __name__ == "__main__":
 
     average_wait_time = departures["wait_time"].mean()
 
-    queue_size_integrator = pd.concat(
-        (arrivals[["time", "event_type", "server_status"]], departures[["time", "event_type", "server_status"]]),
-    ).sort_values("time").reset_index(drop=True)
+    queue_size_integrator = (
+        pd.concat(
+            (
+                arrivals[["time", "event_type", "server_status"]],
+                departures[["time", "event_type", "server_status"]],
+            ),
+        )
+        .sort_values("time")
+        .reset_index(drop=True)
+    )
 
     # time average queue size
     queue_size_integrator["queue_size"] = queue_size_integrator["event_type"].apply(
         lambda x: 1 if x == "arrival" else -1,
     )
-    queue_size_integrator["queue_size"] = queue_size_integrator["queue_size"].cumsum() - 1
+    queue_size_integrator["queue_size"] = (
+        queue_size_integrator["queue_size"].cumsum() - 1
+    )
     queue_size_integrator.loc[queue_size_integrator["queue_size"] < 0, "queue_size"] = 0
 
     queue_size_integrator["time_diff"] = (
@@ -183,15 +192,23 @@ if __name__ == "__main__":
         .diff()
         .fillna(queue_size_integrator["time"].iloc[0])
     )
-    time_average_queue_length = (queue_size_integrator["time_diff"] * queue_size_integrator["queue_size"]).sum() / queue_size_integrator["time"].max()
-    
+    time_average_queue_length = (
+        queue_size_integrator["time_diff"] * queue_size_integrator["queue_size"]
+    ).sum() / queue_size_integrator["time"].max()
+
     # server time spent busy
-    queue_size_integrator["server_status"] = queue_size_integrator["server_status"].apply(lambda x: 1 if x == "busy" else 0)
-    time_average_server_busy = (queue_size_integrator["time_diff"] * queue_size_integrator["server_status"].shift(1, fill_value=0)).sum() / queue_size_integrator["time"].max()
-    
+    queue_size_integrator["server_status"] = queue_size_integrator[
+        "server_status"
+    ].apply(lambda x: 1 if x == "busy" else 0)
+    time_average_server_busy = (
+        queue_size_integrator["time_diff"]
+        * queue_size_integrator["server_status"].shift(1, fill_value=0)
+    ).sum() / queue_size_integrator["time"].max()
+
     # report
     print(f"{total_arrivals=}")
     print(f"{total_departures=}")
     print(f"{num_arrivals_delayed=}")
     print(f"{time_average_queue_length=:.2f}")
     print(f"{time_average_server_busy=:.2f}")
+    print(f"sim_end_time={queue_size_integrator['time'].max():.2f}")
