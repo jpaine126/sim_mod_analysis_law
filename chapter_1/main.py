@@ -11,6 +11,10 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+class SimEnd(RuntimeError):
+    """Simulation stop signal"""
+
+
 @dataclass
 class Server:
     status: Literal["idle", "busy"] = "idle"
@@ -51,6 +55,17 @@ class Sim:
         self.num_delays = 0
         self.num_arrivals = 0
         self.cumulative_delay = 0
+
+        # end conditions
+        self.stop_rule = "end_time"  # num_arrivals, num_delays, cum_delay, end_time
+        self.max_num_arrivals = 1027
+        self.max_num_delays = 1000
+        self.max_cum_delay = 1000
+        self.stop_time = 480
+
+        # stop time is deterministic, so handle now
+        if self.stop_rule == "end_time":
+            self.insert_event(Event("stop", self.stop_time))
 
     def event_dispatcher(func):
         """Register sim event callback"""
@@ -116,17 +131,30 @@ class Sim:
 
         self.departure_log.append(log)
 
+    @event_dispatcher
+    def stop(self):
+        raise SimEnd
+
     def num_arrivals_stop_rule(self):
         """Stop when arrivals exceeds a given amount."""
-        return self.num_arrivals < 1027
+        return self.num_arrivals >= self.max_num_arrivals
 
     def num_delays_stop_rule(self):
         """Stop when number of delayed customers exceeds a given amount."""
-        return self.num_delays < 1000
+        return self.num_delays >= self.max_num_delays
 
     def cum_delay_stop_rule(self):
-        """Stop cumulative delay time exceeds a given amount."""
-        return self.cumulative_delay < 1000
+        """Stop when cumulative delay time exceeds a given value."""
+        return self.cumulative_delay >= self.max_cum_delay
+
+    def check_stop_conditions(self):
+        """Check stop conditions and register stop event."""
+        if (
+            (self.stop_rule == "num_arrivals" and self.num_arrivals_stop_rule())
+            or (self.stop_rule == "num_delays" and self.num_delays_stop_rule())
+            or (self.stop_rule == "cum_delay" and self.cum_delay_stop_rule())
+        ):
+            self.insert_event(Event("stop", 0))
 
     def run(self):
         n = 0
@@ -135,16 +163,22 @@ class Sim:
             Event("arrival", self.rng_stream.exponential(self.mean_arrival_time))
         )
 
-        while self.cum_delay_stop_rule():
-            n += 1
-            logger.info(f"STEP {n} simtime={self.simtime}")
+        while True:
+            self.check_stop_conditions()
+
             next_event = self.event_queue.popleft()
 
             # update simtime for the coming time step
             self.simtime = next_event.time
 
-            # run event callback function
-            _ = _event_register[next_event.event](self)
+            try:
+                # run event callback function
+                _ = _event_register[next_event.event](self)
+
+                n += 1
+                logger.info(f"STEP {n} simtime={self.simtime}")
+            except SimEnd:
+                break
 
 
 if __name__ == "__main__":
@@ -162,6 +196,8 @@ if __name__ == "__main__":
 
     total_arrivals = len(arrivals)
     total_departures = len(departures)
+    total_delays = arrivals["delayed"].sum()
+    cumulative_delay = departures["wait_time"].sum()
 
     num_arrivals_delayed = arrivals["delayed"].sum()
 
@@ -209,6 +245,8 @@ if __name__ == "__main__":
     print(f"{total_arrivals=}")
     print(f"{total_departures=}")
     print(f"{num_arrivals_delayed=}")
+    print(f"{total_delays=}")
+    print(f"{cumulative_delay=}")
     print(f"{time_average_queue_length=:.2f}")
     print(f"{time_average_server_busy=:.2f}")
     print(f"sim_end_time={queue_size_integrator['time'].max():.2f}")
