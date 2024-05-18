@@ -109,18 +109,22 @@ class Sim:
         self.departure_log.append(log)
 
     def run(self):
+        n = 0
         # first arrival
         self.insert_event(
             Event("arrival", self.rng_stream.exponential(self.mean_arrival_time))
         )
 
-        while len(self.arrival_log) < 100:
-            logger.info(f"STEP simtime={self.simtime}")
+        while len(self.arrival_log) < 1027:
+            n += 1
+            logger.info(f"STEP {n} simtime={self.simtime}")
             next_event = self.event_queue.popleft()
 
+            # update simtime for the coming time step
             self.simtime = next_event.time
 
-            result = _event_register[next_event.event](self)
+            # run event callback function
+            _ = _event_register[next_event.event](self)
 
 
 if __name__ == "__main__":
