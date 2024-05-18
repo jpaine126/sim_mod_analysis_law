@@ -48,6 +48,10 @@ class Sim:
         self.arrival_log = []
         self.departure_log = []
 
+        self.num_delays = 0
+        self.num_arrivals = 0
+        self.cumulative_delay = 0
+
     def event_dispatcher(func):
         """Register sim event callback"""
         _event_register[func.__name__] = func
@@ -60,6 +64,7 @@ class Sim:
     @event_dispatcher
     def arrival(self):
         logger.info("arrival")
+        self.num_arrivals += 1
 
         log = {"time": self.simtime, "delayed": False}
 
@@ -74,6 +79,7 @@ class Sim:
             if len(self.service_queue) > self.max_service_queue_size:
                 raise RuntimeError("Service queue size exceeded maximum")
 
+            self.num_delays += 1
             log["delayed"] = True
         else:
             self.server.status = "busy"
@@ -97,7 +103,9 @@ class Sim:
         else:
             this_customer_arrival_time = self.service_queue.popleft()
 
-            log["wait_time"] = self.simtime - this_customer_arrival_time
+            delay = self.simtime - this_customer_arrival_time
+            self.cumulative_delay += delay
+            log["wait_time"] = delay
 
             # schedule next departure
             self.insert_event(
@@ -108,6 +116,18 @@ class Sim:
 
         self.departure_log.append(log)
 
+    def num_arrivals_stop_rule(self):
+        """Stop when arrivals exceeds a given amount."""
+        return self.num_arrivals < 1027
+
+    def num_delays_stop_rule(self):
+        """Stop when number of delayed customers exceeds a given amount."""
+        return self.num_delays < 1000
+
+    def cum_delay_stop_rule(self):
+        """Stop cumulative delay time exceeds a given amount."""
+        return self.cumulative_delay < 1000
+
     def run(self):
         n = 0
         # first arrival
@@ -115,7 +135,7 @@ class Sim:
             Event("arrival", self.rng_stream.exponential(self.mean_arrival_time))
         )
 
-        while len(self.arrival_log) < 1027:
+        while self.cum_delay_stop_rule():
             n += 1
             logger.info(f"STEP {n} simtime={self.simtime}")
             next_event = self.event_queue.popleft()
